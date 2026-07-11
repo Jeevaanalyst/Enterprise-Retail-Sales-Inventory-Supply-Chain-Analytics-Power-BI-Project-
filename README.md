@@ -58,22 +58,76 @@ Average Order Value = DIVIDE([Total Sales],[Total Orders],0)
 SALES ANALYSIS :
 ---------------
 
-YoY Sales Growth % =
-VAR current_year = [Total Sales]
-VAR prior_year =
-    CALCULATE(
-        [Total Sales],
-        SAMEPERIODLASTYEAR(dim_calendar[date])
-    )
-RETURN
-DIVIDE(current_year - prior_year, prior_year, 0) * 100
+Total Units Sold =
+SUM(fact_sales[quantity])
 
-YTD Sales Last Year =
-CALCULATE(
-    [Total Sales],
-    DATESYTD(SAMEPERIODLASTYEAR(dim_calendar[date]))
+
+Total Discount Given =
+SUMX(
+    fact_sales,
+    fact_sales[sales] / (1 - fact_sales[discount]) * fact_sales[discount]
 )
 
+
+
+Avg Discount % =
+AVERAGE(fact_sales[discount]) * 100
+
+Discount Rate % =
+DIVIDE(
+    [Total Discount Given],
+    [Total Sales] + [Total Discount Given],
+    0
+) * 100
+
+
+Sales per Store =
+DIVIDE(
+    [Total Sales],
+    DISTINCTCOUNT(fact_sales[store_id]),
+    0
+)
+
+
+
+Active Store Count =
+CALCULATE(
+    DISTINCTCOUNT(dim_store[store_id]),
+    dim_store[is_active] = 1
+)
+
+
+Running Total Sales =
+CALCULATE(
+    [Total Sales],
+    FILTER(
+        ALLSELECTED(dim_calendar[date]),
+        dim_calendar[date] <= MAX(dim_calendar[date])
+    )
+)
+
+Sales Rank by Product =
+RANKX(
+    ALLSELECTED(dim_product[product_id]),
+    [Total Sales],
+    ,
+    DESC,
+    DENSE
+)
+
+
+
+Bottom 10 Products Flag =
+IF(
+    RANKX(ALL(dim_product[product_id]), [Total Sales], , ASC, DENSE) <= 10,
+    1, 0
+)
+
+YTD Sales =
+CALCULATE(
+    [Total Sales],
+    DATESYTD(dim_calendar[date])
+)
 
 
 Discount Band =
@@ -91,17 +145,40 @@ SWITCH(TRUE(),
 CUSTOMER ANALYTICS :
 --------------------
 
+Repeat Customer % =
+DIVIDE([Repeat Customer Count], [Customer Count], 0) * 100
 
 
-Age Band =
-SWITCH(TRUE(),
-    dim_customer[age]<25, "18-24",
-    dim_customer[age]<35, "25-34",
-    dim_customer[age]<45, "35-44",
-    dim_customer[age]<55, "45-54",
-    "55+"
+Avg CLV =
+AVERAGEX(
+    VALUES(dim_customer[customer_id]),
+    CALCULATE([Total Sales])
 )
 
+
+New Customers This Period =
+CALCULATE(
+    DISTINCTCOUNT(fact_sales[customer_id]),
+    FILTER(
+        fact_sales,
+        CALCULATE(
+            MIN(fact_sales[order_date]),
+            ALLEXCEPT(fact_sales, fact_sales[customer_id])
+        ) >= MIN(dim_calendar[date])
+    )
+)
+
+
+Avg Orders Per Customer =
+DIVIDE([Total Orders], [Customer Count], 0)
+
+
+Premium Customer Revenue % =
+DIVIDE(
+    CALCULATE([Total Sales], dim_customer[customer_segment] = "Premium"),
+    [Total Sales],
+    0
+) * 100
 
 
 Repeat Customer % =
@@ -133,7 +210,56 @@ INVENTORY DASHBOARD :
 ---------------------
 
 
+Current Total Stock =
+CALCULATE(
+    SUM(fact_inventory[stock]),
+    fact_inventory[snapshot_date] = MAX(fact_inventory[snapshot_date])
+)
 
+Dead Stock SKU Count =
+COUNTROWS(
+    FILTER(
+        SUMMARIZE(
+            fact_inventory,
+            fact_inventory[product_id],
+            "total_sold", SUM(fact_inventory[units_sold_this_month])
+        ),
+        [total_sold] = 0
+    )
+)
+
+Below Safety Stock Count =
+CALCULATE(
+    COUNTROWS(fact_inventory),
+    fact_inventory[stock] < fact_inventory[safety_stock]
+)
+
+Avg Lead Time Days =
+AVERAGE(fact_inventory[lead_time_days])
+
+Inventory Value =
+SUMX(
+    fact_inventory,
+    fact_inventory[stock] *
+        RELATED(dim_product[cost_price])
+)
+
+All Products Sales =
+CALCULATE(
+    SUM(fact_inventory[units_sold_this_month]),
+    ALL(dim_product)
+)
+
+Warehouse Utilization % =
+DIVIDE(
+    AVERAGE(fact_inventory[stock]),
+    500,  -- assume 500 units max capacity per slot
+    0
+) * 100
+
+
+Product Sales Total =
+CALCULATE(SUM(fact_inventory[units_sold_this_month]))
 
 Inventory Turnover =
 DIVIDE(SUM(fact_inventory[units_sold_this_month]), AVERAGE(fact_inventory[stock]), 0)
@@ -152,7 +278,23 @@ IF(CALCULATE(SUM(fact_inventory[units_sold_this_month]))=0, "Dead Stock", "Activ
 SUPPLY CHAIN DASHBOARD :
 -------------------------
 
+Total Shipments =
+COUNTROWS(fact_shipment)
 
+On-Time Deliveries =
+CALCULATE(
+    COUNTROWS(fact_shipment),
+    fact_shipment[delay_days] <= 2
+)
+
+On-Time Delivery % =
+DIVIDE([On-Time Deliveries], [Total Shipments], 0) * 100
+
+Avg Delivery Delay =
+AVERAGE(fact_shipment[delay_days])
+
+Total Freight Cost =
+SUM(fact_shipment[freight_cost])
 
 On-Time Delivery % =
 DIVIDE(CALCULATE(COUNTROWS(fact_shipment), fact_shipment[delay_days]<=2), COUNTROWS(fact_shipment), 0)*100
@@ -167,6 +309,28 @@ Total Freight Cost = SUM(fact_shipment[freight_cost])
 
 FINANCIAL DASHBOARD (WITH WATERFALL) :
 ----------------------------------------
+
+Gross Revenue =
+[Total Sales]
+
+Net Margin % =
+DIVIDE([Net Profit], [Total Sales], 0) * 100
+
+Net Profit =
+[Total Profit] - [Total Freight Cost]
+
+Net Revenue =
+[Total Sales]
+
+Gross Profit =
+[Total Profit]
+
+
+Total Discounts =
+SUMX(
+    fact_sales,
+    fact_sales[sales] / (1 - fact_sales[discount]) * fact_sales[discount]
+)
 
 
 
@@ -184,20 +348,11 @@ SWITCH(
 
 
 
-3 Month Moving Avg =
-CALCULATE(
-    AVERAGEX(
-        DATESINPERIOD(dim_calendar[date], LASTDATE(dim_calendar[date]), -3, MONTH),
-        [Total Sales]
-    )
-)
-
-
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 
 Row-Level Security
 
-Modeling → Manage roles → New role "Regional Manager"
+Modeling - Manage roles - New role "Regional Manager"
 
 dax[region] = USERPRINCIPALNAME()
