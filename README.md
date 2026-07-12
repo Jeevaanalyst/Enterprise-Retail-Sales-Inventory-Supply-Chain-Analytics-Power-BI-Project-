@@ -20,7 +20,7 @@ dim_calendar.csv-  Date, Year, Quarter, Month, Week, Fiscal Year
 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-Power BI Analytic Dashboards  - Enterprise Retail Sales, Inventory & Supply Chain , Financial Analytics Link :
+Power BI Analytic Dashboards  - Enterprise Retail Sales, Inventory & Supply Chain,Financial Analytics Link :
 
 https://app.powerbi.com/groups/me/reports/db180b8e-4217-4bab-91f3-e32ab1c6dd32/09e091f06e23b12e0234?experience=power-bi
 
